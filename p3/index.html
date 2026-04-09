@@ -574,10 +574,21 @@
             this.elements.controls.applyBg.addEventListener('click', () => this.applyBackground());
             
             this.elements.placeholder.addEventListener('click', () => this.handleAddImage());
-            
+
+            // Drag & Drop
             const container = document.getElementById('canvas-container');
             container.addEventListener('dragover', (e) => e.preventDefault());
             container.addEventListener('drop', (e) => this.handleDrop(e));
+
+            // Clic en área negra para deseleccionar
+            container.addEventListener('click', (e) => {
+                // Si el clic es directamente en el contenedor (área negra)
+                if (e.target === container || e.target.classList.contains('canvas-container-wrapper')) {
+                    this.canvas.discardActiveObject();
+                    this.canvas.renderAll();
+                    this.handleSelection(null);
+                }
+            });
             
             document.querySelectorAll('.shape-type-btn').forEach(btn => {
                 btn.addEventListener('click', () => this.handleShapeTypeChange(btn));
