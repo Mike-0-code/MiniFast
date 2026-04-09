@@ -596,7 +596,6 @@
             this.elements.controls.strokeWidth.addEventListener('change', () => this.updateShapeProperty('strokeWidth'));
             
             // TECLADO COMPLETO
-            console.log('Tecla presionada:', e.key);
             window.addEventListener('keydown', (e) => {
                 // Delete
                 if (e.key === 'Delete' && this.currentSelectedObject) {
