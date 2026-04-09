@@ -290,9 +290,8 @@
 <body>
 
 <div class="top-bar">
-    <button class="tool-btn" id="tool-text" title="Agregar texto (T)">📝 Texto</button>
-    <button class="tool-btn" id="tool-shape" title="Agregar forma">⬛ Forma</button>
-    <button class="tool-btn" id="tool-bg" title="Color de fondo sólido">🎨 Fondo</button>
+    <button class="tool-btn" id="tool-text" title="Agregar texto (T)">+ Texto</button>
+    <button class="tool-btn" id="tool-shape" title="Agregar forma">+ Forma</button>
     <button class="tool-btn download-btn" id="tool-download" title="Descargar PNG">💾 Descargar</button>
 </div>
 
@@ -460,7 +459,6 @@
         cacheElements() {
             this.elements.textBtn = document.getElementById('tool-text');
             this.elements.shapeBtn = document.getElementById('tool-shape');
-            this.elements.bgBtn = document.getElementById('tool-bg');
             this.elements.downloadBtn = document.getElementById('tool-download');
             this.elements.statusMsg = document.getElementById('status-msg');
             this.elements.canvasWrapper = document.getElementById('canvas-wrapper');
@@ -483,7 +481,6 @@
             // Botones principales
             this.elements.textBtn.addEventListener('click', () => this.handleAddText());
             this.elements.shapeBtn.addEventListener('click', () => this.handleAddShape());
-            this.elements.bgBtn.addEventListener('click', () => this.handleBgColor());
             this.elements.downloadBtn.addEventListener('click', () => this.handleDownload());
             this.elements.controls.applyBg.addEventListener('click', () => this.applyBackground());
             
@@ -827,11 +824,6 @@
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al cambiar tamaño: ${error.message}`);
             }
-        },
-        
-        handleBgColor() {
-            if (this.currentState === this.STATES.ERROR) return;
-            // Solo abre el panel, la acción real está en applyBackground
         },
         
         applyBackground() {
