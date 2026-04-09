@@ -406,13 +406,54 @@
         currentSelectedObject: null,
         hasImage: false,
         currentShapeType: 'rect',
+        copiedObject: null,  // NUEVO: Para copiar/pegar
+
+        // Historial para Undo/Redo
+        history: {
+            stack: [],
+            currentIndex: -1,
+            maxSize: 50,
+    
+            save(state) {
+                if (this.currentIndex < this.stack.length - 1) {
+                    this.stack = this.stack.slice(0, this.currentIndex + 1);
+                }
+        
+                this.stack.push(JSON.parse(JSON.stringify(state)));
+        
+                if (this.stack.length > this.maxSize) {
+                    this.stack.shift();
+                } else {
+                    this.currentIndex++;
+                }
+            },
+    
+            undo() {
+                if (this.currentIndex > 0) {
+                    this.currentIndex--;
+                    return JSON.parse(JSON.stringify(this.stack[this.currentIndex]));
+                }
+                return null;
+            },
+    
+            redo() {
+                if (this.currentIndex < this.stack.length - 1) {
+                    this.currentIndex++;
+                    return JSON.parse(JSON.stringify(this.stack[this.currentIndex]));
+                }
+                return null;
+            },
+    
+            clear() {
+                this.stack = [];
+                this.currentIndex = -1;
+            }
+        },
         
         // Elementos UI
         elements: {
             textBtn: null,
             shapeBtn: null,
-            bgBtn: null,
-            presetBtn: null,
             downloadBtn: null,
             statusMsg: null,
             canvasWrapper: null,
@@ -431,6 +472,57 @@
             pinterest: { width: 1000, height: 1500, name: 'Pinterest' }
         },
         
+        // ============ FUNCIONES DE HISTORIAL ============
+        saveCanvasState() {
+            const state = {
+                objects: this.canvas.toJSON(['customType']),
+                background: this.canvas.backgroundColor,
+                width: this.canvas.width,
+                height: this.canvas.height
+            };
+            this.history.save(state);
+        },
+        
+        restoreCanvasState(state) {
+            if (!state) return;
+            
+            this.canvas.loadFromJSON(state.objects, () => {
+                this.canvas.setBackgroundColor(state.background, () => {
+                    this.canvas.setWidth(state.width);
+                    this.canvas.setHeight(state.height);
+                    this.canvas.renderAll();
+                    
+                    const images = this.canvas.getObjects().filter(obj => obj.type === 'image');
+                    this.hasImage = images.length > 0;
+                    
+                    if (!this.hasImage && this.currentState === this.STATES.EDITING) {
+                        this.transitionTo(this.STATES.READY);
+                    } else if (this.hasImage && this.currentState === this.STATES.READY) {
+                        this.transitionTo(this.STATES.EDITING);
+                    }
+                    
+                    this.updateUIForState();
+                });
+            });
+        },
+        
+        // ============ FUNCIÓN PARA CLONAR OBJETOS ============
+        cloneObject(original) {
+            original.clone((cloned) => {
+                cloned.set({
+                    left: original.left + 20,
+                    top: original.top + 20,
+                    evented: true,
+                    selectable: true
+                });
+                this.canvas.add(cloned);
+                this.canvas.setActiveObject(cloned);
+                this.canvas.renderAll();
+                this.saveCanvasState();
+                this.handleSelection(cloned);
+            });
+        },
+        
         // Inicializar máquina de estados
         init(canvasInstance) {
             this.canvas = canvasInstance;
@@ -438,16 +530,15 @@
             this.bindEvents();
             this.transitionTo(this.STATES.INIT);
             
-            // Verificar Fabric.js
             if (typeof fabric === 'undefined') {
                 this.transitionTo(this.STATES.ERROR, 'Fabric.js no se cargó correctamente');
                 return false;
             }
             
-            // Configurar canvas
             try {
                 this.canvas.setBackgroundColor('#2a2a2a', () => this.canvas.renderAll());
                 this.setupCanvasEvents();
+                this.saveCanvasState();
                 this.transitionTo(this.STATES.READY);
                 return true;
             } catch (error) {
@@ -465,7 +556,6 @@
             this.elements.placeholder = document.getElementById('placeholder');
             this.elements.leftPanel = document.getElementById('left-panel');
             
-            // Cache de controles
             this.elements.controls.fontFamily = document.getElementById('font-family');
             this.elements.controls.fontSize = document.getElementById('font-size');
             this.elements.controls.textColor = document.getElementById('text-color');
@@ -478,31 +568,25 @@
         },
         
         bindEvents() {
-            // Botones principales
             this.elements.textBtn.addEventListener('click', () => this.handleAddText());
             this.elements.shapeBtn.addEventListener('click', () => this.handleAddShape());
             this.elements.downloadBtn.addEventListener('click', () => this.handleDownload());
             this.elements.controls.applyBg.addEventListener('click', () => this.applyBackground());
             
-            // Placeholder
             this.elements.placeholder.addEventListener('click', () => this.handleAddImage());
             
-            // Drag & drop
             const container = document.getElementById('canvas-container');
             container.addEventListener('dragover', (e) => e.preventDefault());
             container.addEventListener('drop', (e) => this.handleDrop(e));
             
-            // Shape type selector
             document.querySelectorAll('.shape-type-btn').forEach(btn => {
                 btn.addEventListener('click', () => this.handleShapeTypeChange(btn));
             });
             
-            // Preset buttons
             document.querySelectorAll('.preset-btn').forEach(btn => {
                 btn.addEventListener('click', () => this.handlePresetClick(btn));
             });
             
-            // Controles de edición
             this.elements.controls.fontFamily.addEventListener('change', () => this.updateTextProperty('fontFamily'));
             this.elements.controls.fontSize.addEventListener('change', () => this.updateTextProperty('fontSize'));
             this.elements.controls.textColor.addEventListener('change', () => this.updateTextProperty('fill'));
@@ -511,10 +595,78 @@
             this.elements.controls.strokeColor.addEventListener('change', () => this.updateShapeProperty('stroke'));
             this.elements.controls.strokeWidth.addEventListener('change', () => this.updateShapeProperty('strokeWidth'));
             
-            // Teclado
+            // TECLADO COMPLETO
             window.addEventListener('keydown', (e) => {
-                if (e.key === 'Delete') this.handleDelete();
-                if (e.ctrlKey && e.key === 'z') e.preventDefault();
+                // Delete
+                if (e.key === 'Delete' && this.currentSelectedObject) {
+                    this.handleDelete();
+                    e.preventDefault();
+                }
+                
+                // Esc - Deseleccionar
+                if (e.key === 'Escape') {
+                    this.canvas.discardActiveObject();
+                    this.canvas.renderAll();
+                    this.handleSelection(null);
+                    e.preventDefault();
+                }
+                
+                // Ctrl+Z - Undo
+                if (e.ctrlKey && e.key === 'z') {
+                    e.preventDefault();
+                    const previousState = this.history.undo();
+                    if (previousState) {
+                        this.restoreCanvasState(previousState);
+                    }
+                }
+                
+                // Ctrl+Y o Ctrl+Shift+Z - Redo
+                if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'Z')) {
+                    e.preventDefault();
+                    const nextState = this.history.redo();
+                    if (nextState) {
+                        this.restoreCanvasState(nextState);
+                    }
+                }
+                
+                // Ctrl+C - Copiar
+                if (e.ctrlKey && e.key === 'c' && this.currentSelectedObject) {
+                    e.preventDefault();
+                    this.copiedObject = this.currentSelectedObject;
+                    this.showError('✅ Objeto copiado');
+                    setTimeout(() => {
+                        const errors = document.querySelectorAll('.error-message');
+                        if (errors.length > 0) errors[errors.length - 1]?.remove();
+                    }, 1000);
+                }
+                
+                // Ctrl+V - Pegar
+                if (e.ctrlKey && e.key === 'v' && this.copiedObject) {
+                    e.preventDefault();
+                    this.cloneObject(this.copiedObject);
+                }
+                
+                // Flechas - Mover
+                if (this.currentSelectedObject && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                    e.preventDefault();
+                    let deltaX = 0, deltaY = 0;
+                    const step = 1;
+                    
+                    switch(e.key) {
+                        case 'ArrowLeft': deltaX = -step; break;
+                        case 'ArrowRight': deltaX = step; break;
+                        case 'ArrowUp': deltaY = -step; break;
+                        case 'ArrowDown': deltaY = step; break;
+                    }
+                    
+                    this.currentSelectedObject.set({
+                        left: this.currentSelectedObject.left + deltaX,
+                        top: this.currentSelectedObject.top + deltaY
+                    });
+                    this.currentSelectedObject.setCoords();
+                    this.canvas.renderAll();
+                    this.saveCanvasState();
+                }
             });
         },
         
@@ -523,7 +675,6 @@
             this.canvas.on('selection:updated', (e) => this.handleSelection(e.selected[0]));
             this.canvas.on('selection:cleared', () => this.handleSelection(null));
             
-            // Zoom
             this.canvas.on('mouse:wheel', (opt) => {
                 if (this.currentState === this.STATES.ERROR) return;
                 const delta = opt.e.deltaY;
@@ -544,15 +695,12 @@
             
             console.log(`Estado: ${oldState} → ${newState}`);
             
-            // Actualizar UI según estado
             this.updateUIForState();
             
-            // Mostrar mensaje de error si existe
             if (newState === this.STATES.ERROR && errorMessage) {
                 this.showError(errorMessage);
             }
             
-            // Actualizar mensaje de estado
             this.updateStatusMessage();
         },
         
@@ -562,20 +710,16 @@
             const isEditing = this.currentState === this.STATES.EDITING;
             const canEdit = isEditing && this.hasImage;
             
-            // Habilitar/deshabilitar botones según estado
-            // Botón de fondo ahora también se bloquea hasta que haya imagen
-            const buttons = [this.elements.textBtn, this.elements.shapeBtn, this.elements.bgBtn];
+            const buttons = [this.elements.textBtn, this.elements.shapeBtn];
             buttons.forEach(btn => {
                 if (btn) btn.disabled = !canEdit || isError;
             });
             
-            // El botón de descarga solo si hay contenido
             if (this.elements.downloadBtn) {
                 const hasContent = this.canvas && this.canvas.getObjects().length > 0;
                 this.elements.downloadBtn.disabled = isError || (!hasContent && !this.hasImage);
             }
             
-            // Mostrar/ocultar panel izquierdo - SOLO cuando hay imagen y estamos en estado EDITING
             if (this.elements.leftPanel) {
                 if (isEditing && this.hasImage && !isError) {
                     this.elements.leftPanel.classList.add('visible');
@@ -584,7 +728,6 @@
                 }
             }
             
-            // Mostrar/ocultar placeholder
             if (this.elements.canvasWrapper && this.elements.placeholder) {
                 if (this.hasImage && !isError) {
                     this.elements.canvasWrapper.classList.add('has-image');
@@ -593,7 +736,6 @@
                 }
             }
             
-            // Marcar error visualmente
             if (isError) {
                 document.body.classList.add('error-state');
             } else {
@@ -678,7 +820,6 @@
                         this.canvas.setActiveObject(img);
                         this.hasImage = true;
                         
-                        // Transición a EDITING si estaba en READY
                         if (this.currentState === this.STATES.READY) {
                             this.transitionTo(this.STATES.EDITING);
                         }
@@ -686,6 +827,7 @@
                         this.canvas.renderAll();
                         this.updateUIForState();
                         this.handleSelection(img);
+                        this.saveCanvasState();
                     } catch (error) {
                         this.transitionTo(this.STATES.ERROR, `Error al cargar imagen: ${error.message}`);
                     }
@@ -724,6 +866,7 @@
                 this.canvas.setActiveObject(text);
                 this.canvas.renderAll();
                 this.handleSelection(text);
+                this.saveCanvasState();
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al agregar texto: ${error.message}`);
             }
@@ -744,6 +887,7 @@
                 this.canvas.setActiveObject(shape);
                 this.canvas.renderAll();
                 this.handleSelection(shape);
+                this.saveCanvasState();
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al agregar forma: ${error.message}`);
             }
@@ -783,6 +927,7 @@
             this.canvas.setActiveObject(newShape);
             this.canvas.renderAll();
             this.handleSelection(newShape);
+            this.saveCanvasState();
         },
         
         handleShapeTypeChange(btn) {
@@ -811,7 +956,8 @@
                 this.canvas.setWidth(width);
                 this.canvas.setHeight(height);
                 this.canvas.renderAll();
-                this.showError(`✅ Tamaño cambiado a ${name}: ${width}x${height}`); // Usamos showError temporalmente como notificación
+                this.saveCanvasState();
+                this.showError(`✅ Tamaño cambiado a ${name}: ${width}x${height}`);
                 setTimeout(() => {
                     const errors = document.querySelectorAll('.error-message');
                     if (errors.length > 0) {
@@ -830,7 +976,10 @@
             if (this.currentState === this.STATES.ERROR) return;
             try {
                 const color = this.elements.controls.canvasBg.value;
-                this.canvas.setBackgroundColor(color, () => this.canvas.renderAll());
+                this.canvas.setBackgroundColor(color, () => {
+                    this.canvas.renderAll();
+                    this.saveCanvasState();
+                });
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al aplicar fondo: ${error.message}`);
             }
@@ -864,7 +1013,6 @@
                 return;
             }
             
-            // Actualizar controles según tipo de objeto
             if (obj.type === 'i-text' || obj.type === 'text') {
                 this.elements.controls.fontFamily.value = obj.fontFamily || 'Arial';
                 this.elements.controls.fontSize.value = obj.fontSize || 48;
@@ -903,6 +1051,7 @@
             try {
                 this.currentSelectedObject.set(property, value);
                 this.canvas.renderAll();
+                this.saveCanvasState();
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al actualizar texto: ${error.message}`);
             }
@@ -931,6 +1080,7 @@
             try {
                 this.currentSelectedObject.set(property, value);
                 this.canvas.renderAll();
+                this.saveCanvasState();
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al actualizar forma: ${error.message}`);
             }
@@ -955,7 +1105,8 @@
                 
                 this.canvas.renderAll();
                 this.handleSelection(null);
-                this.updateUIForState(); // Actualizar UI para ocultar panel si es necesario
+                this.updateUIForState();
+                this.saveCanvasState();
             } catch (error) {
                 this.transitionTo(this.STATES.ERROR, `Error al eliminar: ${error.message}`);
             }
@@ -964,7 +1115,6 @@
     
     // ==================== INICIALIZACIÓN ====================
     document.addEventListener('DOMContentLoaded', () => {
-        // Verificar Fabric.js
         if (typeof fabric === 'undefined') {
             const errorDiv = document.createElement('div');
             errorDiv.className = 'error-message';
@@ -973,7 +1123,6 @@
             return;
         }
         
-        // Crear canvas
         const canvasElement = document.getElementById('canvas');
         if (!canvasElement) {
             console.error('Canvas no encontrado');
@@ -981,8 +1130,6 @@
         }
         
         const canvas = new fabric.Canvas('canvas');
-        
-        // Inicializar máquina de estados
         const success = StateMachine.init(canvas);
         
         if (!success) {
