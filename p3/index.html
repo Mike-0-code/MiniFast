@@ -475,7 +475,7 @@
         // ============ FUNCIONES DE HISTORIAL ============
         saveCanvasState() {
             const state = {
-                objects: this.canvas.toJSON(['customType']),
+                objects: this.canvas.toJSON(['customType', 'left', 'top', 'width', 'height', 'scaleX', 'scaleY', 'angle', 'fontSize', 'fontFamily', 'fill', 'stroke', 'strokeWidth', 'text', 'textAlign']),
                 background: this.canvas.backgroundColor,
                 width: this.canvas.width,
                 height: this.canvas.height
@@ -674,7 +674,13 @@
             this.canvas.on('selection:created', (e) => this.handleSelection(e.selected[0]));
             this.canvas.on('selection:updated', (e) => this.handleSelection(e.selected[0]));
             this.canvas.on('selection:cleared', () => this.handleSelection(null));
-            
+
+            // Guardar estado cuando se modifica un objeto (redimension, rotación, etc.)
+            this.canvas.on('object:modified', () => {
+            this.saveCanvasState();
+            });
+    
+            // Zoom
             this.canvas.on('mouse:wheel', (opt) => {
                 if (this.currentState === this.STATES.ERROR) return;
                 const delta = opt.e.deltaY;
