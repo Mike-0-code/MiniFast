@@ -609,7 +609,7 @@
             // TECLADO COMPLETO
             window.addEventListener('keydown', (e) => {
                 // Delete
-                if ((e.key === 'Delete' || e.key === 'Supr' || e.key === 'Backspace') && this.currentSelectedObject) {
+                if ((e.key === 'Delete' || e.key === 'Supr') && this.currentSelectedObject) { // Se quitó "|| e.key === 'Backspace'" para evitar conflicto con la barra lateral
                     this.handleDelete();
                     e.preventDefault();
                 }
